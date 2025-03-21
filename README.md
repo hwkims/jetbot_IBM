@@ -1,11 +1,12 @@
 # jetbot_IBM
 jetbot_IBM granite3.2-vision control
+![image](https://github.com/user-attachments/assets/99c5753a-e924-454f-a2b4-3110405e5843)
+![image](https://github.com/user-attachments/assets/9e852845-ae11-4831-ba01-3cd6f332cc70)
+
 ![image](https://github.com/user-attachments/assets/dcf4e0e0-e4b6-4798-af3f-98d98b5b65b5)
 ![image](https://github.com/user-attachments/assets/8fffbc99-aab0-4984-a7cd-3b9e483d3b6c)
 ![image](https://github.com/user-attachments/assets/1f4f13eb-c240-4677-a9a8-8960c0ca7922)
-잘했다고 말씀해 주셔서 기쁘네요! 이제 GitHub 리드미를 작성해 드리겠습니다. 요청하신 링크 `https://github.com/hwkims/jetbot_IBM/new/main`은 실제 저장소가 아닌 새 브랜치를 만드는 URL로 보이므로, 제가 가정해서 `hwkims/jetbot_IBM`이라는 저장소에 맞춰 리드미를 작성하겠습니다. 이 리드미는 프로젝트의 목적, 기능, 설치 방법, 사용법 등을 포함하며, 깔끔하고 전문적으로 작성하겠습니다.
-
----
+ 
 
 # JetBot Control 🤖
 
