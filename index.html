@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JetBot Control with Vision and Ollama</title>
+    <style>
+        /* Reset and Basic Styling */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #e0e0e0, #f0f0f0); /* Subtle gradient */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        /* Glassmorphic Container */
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            background: rgba(255, 255, 255, 0.1); /* Glass effect */
+            backdrop-filter: blur(10px); /* Blur the background */
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37); /* Subtle shadow */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 3em;
+            font-weight: 600;
+            color: #222;
+            margin-bottom: 10px;
+        }
+
+        /* Table of Contents (TOC) */
+        .toc {
+            margin-bottom: 20px;
+            display: flex; /* Flex container for responsiveness */
+            flex-wrap: wrap; /* Allows wrapping on smaller screens */
+            justify-content: center; /* Centers items horizontally */
+        }
+
+        .toc ul {
+            list-style: none;
+            padding: 0;
+            display: flex; /* Flex for the list items */
+            flex-wrap: wrap; /* Wrap items on smaller screens */
+            justify-content: center; /* Center list items */
+        }
+
+        .toc li {
+            margin: 0 10px 5px 10px; /* Spacing around links */
+        }
+
+        .toc a {
+            text-decoration: none;
+            color: #444;
+            padding: 8px 15px;
+            border-radius: 15px;
+            background-color: rgba(255, 255, 255, 0.2);
+            transition: background-color 0.3s ease;
+            display: block; /* Makes the whole area clickable */
+            white-space: nowrap; /* Prevent text wrapping */
+        }
+
+        .toc a:hover {
+            background-color: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Content Sections */
+        .content-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+        }
+
+        .content-section h2 {
+            font-size: 2em;
+            color: #333;
+            margin-bottom: 15px;
+            border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+            padding-bottom: 5px;
+        }
+
+        .content-section p {
+            font-size: 1.1em;
+            line-height: 1.6;
+            color: #555;
+        }
+        .content-section ul {
+            font-size: 1.1em;
+            line-height: 1.6;
+            color: #555;
+            margin-left: 20px;
+        }
+
+        /* Pipeline Diagram */
+        .pipeline {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap; /* Wrap on smaller screens */
+        }
+
+        .pipeline-item {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 15px;
+            margin: 10px;
+            text-align: center;
+            min-width: 120px; /* Minimum width for items */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .pipeline-item i{
+           font-size: 2em;
+           margin-bottom: 0.5em;
+        }
+        .pipeline-arrow {
+            font-size: 2em;
+            color: #666;
+        }
+
+        /* Code Blocks */
+        pre {
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin-top: 10px;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+        code{
+            font-family: 'Courier New', Courier, monospace;
+        }
+        /* Responsive Adjustments */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                width: 95%;
+            }
+            .header h1 {
+                font-size: 2.5em;
+            }
+
+            .toc {
+                flex-direction: column; /* Stack TOC vertically on small screens */
+                align-items: center; /* Center TOC */
+            }
+            .toc ul {
+                width: 100%; /* Full width */
+            }
+            .toc li{
+                width: 100%;
+                text-align: center;
+            }
+
+            .pipeline {
+                flex-direction: column; /* Stack pipeline vertically */
+            }
+            .pipeline-item{
+                width: 80%;
+            }
+        }
+        @media (max-width: 480px){
+            .header h1{
+                font-size: 2em;
+            }
+            .content-section h2{
+                font-size: 1.5em;
+            }
+        }
+
+    </style>
+     <!-- Add Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>JetBot Control with Vision and Ollama</h1>
+        </div>
+
+        <nav class="toc">
+            <ul>
+                <li><a href="#introduction">Introduction</a></li>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#project-structure">Project Structure</a></li>
+                <li><a href="#prerequisites">Prerequisites</a></li>
+                <li><a href="#setup">Setup and Running</a></li>
+                <li><a href="#usage">Usage</a></li>
+                <li><a href="#pipeline">Pipeline</a></li>
+                <li><a href="#troubleshooting">Troubleshooting</a></li>
+                <li><a href="#contributing">Contributing</a></li>
+                <li><a href="#license">License</a></li>
+            </ul>
+        </nav>
+
+        <section class="content-section" id="introduction">
+            <h2>Introduction</h2>
+            <p>This project enables control of a JetBot robot using a combination of direct commands and advanced, vision-based autonomous navigation. It leverages the power of Ollama (a large language model) for image understanding and decision-making, FastAPI for a robust backend API, WebSockets for real-time communication, and edge-tts for providing spoken feedback.  A user-friendly web interface, built with Streamlit, allows for easy interaction and visualization of the autonomous process.</p>
+        </section>
+
+        <section class="content-section" id="features">
+            <h2>Features</h2>
+            <ul>
+                <li><strong>Direct Control:</strong> Send basic movement commands (forward, backward, left, right, stop, dance) to the JetBot.</li>
+                <li><strong>Vision-Based Autonomous Navigation:</strong> Use Ollama (granite3.2-vision) for image analysis and navigation.</li>
+                <li><strong>Real-time Image Streaming:</strong> View the JetBot's camera feed.</li>
+                <li><strong>Text-to-Speech (TTS) Feedback:</strong> Get spoken feedback from the JetBot.</li>
+                <li><strong>Custom Commands:</strong> Define custom actions based on vision analysis.</li>
+                <li><strong>Multiple Control Modes:</strong> Switch between manual, descriptive, custom, and autonomous modes.</li>
+                <li><strong>Physiognomy Analysis:</strong>  Analyze facial features (separate Streamlit application).</li>
+                <li><strong>FastAPI Backend:</strong> Robust and efficient API.</li>
+                <li><strong>WebSocket Communication:</strong> Real-time data exchange.</li>
+            </ul>
+        </section>
+
+        <section class="content-section" id="project-structure">
+            <h2>Project Structure</h2>
+            <p>The project comprises the following main parts:</p>
+            <ul>
+                <li><code>app.py</code> (FastAPI Backend): The core of the system, handling WebSockets, Ollama communication, TTS, and command processing.</li>
+                <li><code>static/</code> (Web Interface):  HTML, CSS, and JavaScript for the basic web interface.</li>
+                <li><code>physiognomy_app.py</code> (Streamlit App): A separate application for facial analysis.</li>
+                <li><code>requirements.txt</code>: Lists the Python dependencies.</li>
+            </ul>
+        </section>
+
+        <section class="content-section" id="prerequisites">
+            <h2>Prerequisites</h2>
+             <ul>
+                <li><strong>JetBot:</strong> A configured JetBot with its WebSocket server running (default: <code>ws://192.168.137.181:8766</code>).</li>
+                <li><strong>Ollama:</strong> Installed and running (<a href="https://ollama.ai/" target="_blank">https://ollama.ai/</a>). Pull the <code>granite3.2-vision</code> model:
+                    <pre><code>ollama pull granite3.2-vision</code></pre>
+                </li>
+                <li><strong>Python 3.7+:</strong>  Required for the project.</li>
+                <li><strong>Dependencies:</strong> Install using:
+                    <pre><code>pip install -r requirements.txt</code></pre>
+                </li>
+                 <li><strong>Edge-TTS:</strong> For voice generation (included in requirements.txt).</li>
+            </ul>
+        </section>
+
+        <section class="content-section" id="setup">
+            <h2>Setup and Running</h2>
+            <ol>
+                <li>Clone the Repository:
+                    <pre><code>git clone https://github.com/hwkims/jetbot_IBM.git
+cd jetbot_IBM</code></pre>
+                </li>
+                <li>Configure (if necessary): Modify <code>OLLAMA_HOST</code> and <code>JETBOT_WEBSOCKET_URL</code> in <code>app.py</code> and <code>physiognomy_app.py</code>.</li>
+                <li>Start the FastAPI Server:
+                    <pre><code>uvicorn app:app --host 0.0.0.0 --port 8000</code></pre>
+                </li>
+                <li>Start the Streamlit App (Optional):
+                    <pre><code>streamlit run physiognomy_app.py</code></pre>
+                </li>
+                <li>Connect your Jetbot: Power on your Jetbot and ensure the websocket server is running.</li>
+                <li>Access the Web Interface: Open <code>http://localhost:8000</code> in a browser.</li>
+            </ol>
+        </section>
+        <section class="content-section" id="usage">
+<h2>Usage</h2>
+<h3>Main Web Interface (<code>http://localhost:8000</code>)</h3>
+<ul>
+<li><strong>Direct Control Buttons:</strong> Immediate commands to the JetBot.</li>
+<li><strong>Iterations:</strong> Number of times to repeat a command.</li>
+<li><strong>Text Input:</strong> For custom prompts and text input.</li>
+<li><strong>Describe:</strong> Sends image to Ollama for description.</li>
+<li><strong>Custom:</strong> Sends image and text prompt, executes commands.</li>
+<li><strong>Autonomous:</strong> Enters autonomous navigation mode.</li>
+</ul>
+<h3>Physiognomy App (<code>http://localhost:8501</code>)</h3>
+<p>Upload an image or use your webcam to analyze facial features.</p>
+</section>
+
+        <section class="content-section" id="pipeline">
+            <h2>Pipeline</h2>
+            <div class="pipeline">
+                <div class="pipeline-item"><i class="fas fa-robot"></i><br>JetBot</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fas fa-video"></i> <br>Camera Image</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fa-brands fa-python"></i><br>FastAPI Server</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fas fa-brain"></i><br>Ollama (granite3.2-vision)</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fa-solid fa-comment"></i><br>JSON Response (Commands/Description)</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fa-solid fa-volume-high"></i><br>TTS (edge-tts)</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-item"><i class="fa-brands fa-html5"></i><br>Web Interface</div>
+            </div>
+        </section>
+
+        <section class="content-section" id="troubleshooting">
+            <h2>Troubleshooting</h2>
+            <ul>
+                <li><strong>JetBot Not Connecting:</strong> Check power, network, WebSocket server, and <code>JETBOT_WEBSOCKET_URL</code>.</li>
+                <li><strong>Ollama Not Responding:</strong> Ensure Ollama is running, the model is pulled, and <code>OLLAMA_HOST</code> is correct.</li>
+                <li><strong>Web Interface Not Working:</strong> Check FastAPI server and browser console.</li>
+                <li><strong>TTS Not Working:</strong> Ensure an internet connection for `edge-tts`.</li>
+                <li><strong>Streamlit Webcam Issues</strong> May require HTTPS or workarounds like:
+                 <pre><code>streamlit run physiognomy_app.py --server.enableCORS=false --server.enableXsrfProtection=false</code></pre>
+                 </li>
+            </ul>
+        </section>
+
+        <section class="content-section" id="contributing">
+            <h2>Contributing</h2>
+            <p>Contributions are welcome! Submit pull requests or open issues on the GitHub repository.</p>
+        </section>
+
+        <section class="content-section" id="license">
+            <h2>License</h2>
+            <p>This project is licensed under the MIT License.</p>
+        </section>
+    </div>
+    <script>
+      // Smooth scrolling for ToC links
+        document.querySelectorAll('.toc a').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+    </script>
+</body>
+</html>
