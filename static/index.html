@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JetBot Control 🤖</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E🤖%3C/text%3E%3C/svg%3E">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(145deg, #1e1e2f, #2a2a4a);
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px;
+            overflow-x: hidden;
+        }
+        h1 {
+            font-size: 42px;
+            font-weight: 900;
+            color: #ffffff;
+            text-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            margin-bottom: 40px;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+        #webcam-feed {
+            width: 100%;
+            max-width: 720px;
+            height: auto;
+            border-radius: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+            background: rgba(255, 255, 255, 0.05);
+            transition: transform 0.4s ease, box-shadow 0.4s ease;
+        }
+        #webcam-feed:hover { transform: scale(1.03); box-shadow: 0 16px 60px rgba(0, 0, 0, 0.5); }
+        .controls {
+            margin-top: 40px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            width: 100%;
+            max-width: 720px;
+        }
+        .custom-command-group, .autonomous-controls {
+            margin-top: 30px;
+            width: 100%;
+            max-width: 720px;
+            display: flex;
+            gap: 15px;
+            animation: slideUp 0.8s ease-out;
+        }
+        button, #iterations-input {
+            background: linear-gradient(135deg, rgba(60, 60, 100, 0.9), rgba(100, 100, 140, 0.7));
+            border: none;
+            border-radius: 12px;
+            padding: 16px;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s ease, height 0.6s ease;
+        }
+        button:hover:not(:disabled)::before {
+            width: 300px;
+            height: 300px;
+        }
+        button:hover:not(:disabled) {
+            background: linear-gradient(135deg, rgba(80, 80, 120, 1), rgba(120, 120, 160, 0.9));
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:disabled::after { content: " Processing..."; font-size: 12px; opacity: 0.8; }
+        #custom-command-input, #iterations-input {
+            flex: 1;
+            padding: 16px;
+            border-radius: 12px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        #custom-command-input:focus, #iterations-input:focus {
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.3);
+        }
+        #iterations-input { width: 80px; text-align: center; }
+        #response-text {
+            margin-top: 30px;
+            width: 100%;
+            max-width: 720px;
+            padding: 20px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+            font-size: 16px;
+            text-align: center;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+            transition: background 0.3s ease;
+        }
+        #response-text:hover { background: rgba(255, 255, 255, 0.08); }
+        #tts-player {
+            width: 100%;
+            max-width: 720px;
+            margin-top: 20px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        #recording-indicator {
+            color: #ff4d4d;
+            margin-left: 10px;
+            font-size: 14px;
+            display: none;
+        }
+        #recording-indicator.active { display: inline; }
+        @keyframes glow {
+            from { text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); }
+            to { text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 30px rgba(100, 100, 255, 0.5); }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @media (max-width: 720px) {
+            .controls { grid-template-columns: repeat(2, 1fr); }
+            h1 { font-size: 32px; }
+            #webcam-feed { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <h1>JetBot Control 🤖</h1>
+    <img id="webcam-feed" src="" alt="JetBot Webcam Feed">
+    <div class="controls">
+        <button id="navigate-forward-button">🚀 Forward</button>
+        <button id="navigate-backward-button">⏪ Backward</button>
+        <button id="navigate-left-button">⬅️ Left</button>
+        <button id="navigate-right-button">➡️ Right</button>
+        <button id="stop-button">🛑 Stop</button>
+        <button id="dance-button">💃 Dance</button>
+        <button id="describe-button">👀 Describe</button>
+        <button id="voice-button">🎙️ Voice</button>
+    </div>
+    <div class="autonomous-controls">
+        <input type="number" id="iterations-input" value="1" min="1" placeholder="Iterations">
+        <button id="autonomous-button">🤖 Autonomous</button>
+    </div>
+    <div class="custom-command-group">
+        <input type="text" id="custom-command-input" placeholder="Command your JetBot!">
+        <button id="custom-command-button">🚀 Execute</button>
+    </div>
+    <div id="response-text">JetBot Ready!</div>
+    <audio id="tts-player" controls autoplay></audio>
+    <audio id="ding-player" src="/static/ding.mp3" preload="auto"></audio>
+    <span id="recording-indicator">🔴 Recording...</span>
+
+    <script>
+    const webcamFeed = document.getElementById('webcam-feed');
+    const responseText = document.getElementById('response-text');
+    const ttsPlayer = document.getElementById('tts-player');
+    const dingPlayer = document.getElementById('ding-player');
+    const iterationsInput = document.getElementById('iterations-input');
+    const recordingIndicator = document.getElementById('recording-indicator');
+    const buttons = document.querySelectorAll('button');
+    let websocket = null;
+    let recognition = null;
+    let isProcessing = false;
+
+    function setButtonsDisabled(disabled) {
+        buttons.forEach(btn => btn.disabled = disabled);
+        iterationsInput.disabled = disabled;
+        isProcessing = disabled;
+    }
+
+    function connectWebSocket() {
+        websocket = new WebSocket("ws://localhost:8000/ws/client");
+        websocket.onopen = () => {
+            console.log("WebSocket connected!");
+            setButtonsDisabled(false);
+            responseText.textContent = "JetBot Ready!";
+        };
+        websocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.image) webcamFeed.src = "data:image/jpeg;base64," + data.image;
+            if (data.response) responseText.textContent = data.response;
+            if (data.description) responseText.textContent = data.description;
+            if (data.audio) {
+                ttsPlayer.src = data.audio;
+                ttsPlayer.play().catch(e => console.error("TTS error:", e));
+            }
+            if (data.error) responseText.textContent = `Error: ${data.error}`;
+            setButtonsDisabled(false);
+        };
+        websocket.onclose = () => {
+            console.log("WebSocket closed. Reconnecting...");
+            setButtonsDisabled(true);
+            responseText.textContent = "Reconnecting to JetBot...";
+            setTimeout(connectWebSocket, 5000);
+        };
+        websocket.onerror = (e) => {
+            console.error("WebSocket error:", e);
+            responseText.textContent = "WebSocket connection failed!";
+        };
+    }
+
+    async function sendCommand(command, parameters = {}) {
+        if (websocket?.readyState === WebSocket.OPEN && !isProcessing) {
+            setButtonsDisabled(true);
+            responseText.textContent = "JetBot is processing...";
+            dingPlayer.play().catch(e => console.error("Ding error:", e));
+            const iterations = parseInt(iterationsInput.value) || 1;
+            websocket.send(JSON.stringify({ command, parameters: { ...parameters, iterations } }));
+        } else {
+            responseText.textContent = "JetBot not connected or busy!";
+            setButtonsDisabled(false);
+        }
+    }
+
+    function startVoiceRecognition() {
+        if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+            responseText.textContent = "Voice recognition not supported!";
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = ture;
+        recognition.interimResults = ture;
+        recognition.lang = "en-US";  // 한국어로 설정ko-KR
+
+        recognition.onstart = () => {
+            recordingIndicator.classList.add("active");
+            responseText.textContent = "JetBot is listening...";
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript.trim();
+            responseText.textContent = `Heard: ${transcript}`;
+            sendCommand("custom", { text: transcript });
+        };
+
+        recognition.onend = () => {
+            recordingIndicator.classList.remove("active");
+            recognition = null;
+            if (!isProcessing) responseText.textContent = "JetBot Ready!";
+        };
+
+        recognition.onerror = (event) => {
+            responseText.textContent = `Voice error: ${event.error}`;
+            recordingIndicator.classList.remove("active");
+            recognition = null;
+        };
+
+        recognition.start();
+    }
+
+    // Event Listeners
+    document.getElementById('describe-button').addEventListener('click', () => sendCommand("describe"));
+    document.getElementById('navigate-forward-button').addEventListener('click', () => sendCommand("forward"));
+    document.getElementById('navigate-backward-button').addEventListener('click', () => sendCommand("backward"));
+    document.getElementById('navigate-left-button').addEventListener('click', () => sendCommand("left"));
+    document.getElementById('navigate-right-button').addEventListener('click', () => sendCommand("right"));
+    document.getElementById('stop-button').addEventListener('click', () => sendCommand("stop"));
+    document.getElementById('dance-button').addEventListener('click', () => sendCommand("dance"));
+    document.getElementById('voice-button').addEventListener('click', () => {
+        if (recognition) recognition.stop();
+        else startVoiceRecognition();
+    });
+    document.getElementById('autonomous-button').addEventListener('click', () => sendCommand("autonomous"));
+    document.getElementById('custom-command-button').addEventListener('click', () => {
+        const command = document.getElementById('custom-command-input').value.trim();
+        if (command) sendCommand("custom", { text: command });
+    });
+
+    connectWebSocket();
+    </script>
+</body>
+</html>
