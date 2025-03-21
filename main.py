@@ -83,29 +83,30 @@ async def query_ollama(prompt: str, image_data: Optional[str] = None) -> Dict[st
         "model": MODEL_NAME,
         "prompt": (
             f"{prompt}\n"
-            "You are controlling a JetBot robot in autonomous mode. Analyze the provided image and provide a detailed description of the scene. "
-            "Based on the image analysis, generate actionable commands for the JetBot in JSON format. "
-            "Supported commands include: forward, backward, left, right, stop, dance, or any custom movement you deem appropriate. "
-            "Include 'parameters' with 'speed' (0.0 to 1.0) and 'duration' (seconds), and 'tts' for spoken feedback. "
-            "Focus on objects, obstacles, paths, and details relevant to navigation. "
-            "Return the response in this format:\n"
+            "You are an AI controlling a JetBot robot in autonomous mode. Your task is to navigate safely based on the provided image. "
+            "Analyze the image in extreme detail and describe what is directly ahead of the robot, including objects, obstacles, pathways, or hazards. "
+            "Estimate distances and sizes in centimeters (cm) based on your best judgment, using common objects for reference if possible. "
+            "Generate actionable commands for the JetBot in JSON format using these commands: 'forward', 'backward', 'left', 'right', 'stop', or 'dance'. "
+            "For each command, include 'speed' (0.0 to 1.0) and 'duration' (in seconds) in 'parameters'. "
+            "Add a 'tts' field with natural, descriptive text explaining why the action is taken. "
+            "Prioritize safety: if an obstacle is ahead, avoid it and explain the maneuver in the 'tts'. "
+            "Adjust speed and duration based on the situation—slow and short for tight spaces, fast and long for open areas. "
+            "Use this JSON format:\n"
             "```json\n"
             "{\n"
             "  \"commands\": [\n"
-            "    {\"command\": \"forward\", \"parameters\": {\"speed\": 0.5, \"duration\": 1.0}, \"tts\": \"Moving forward past the table.\"},\n"
-            "    {\"command\": \"left\", \"parameters\": {\"speed\": 0.5, \"duration\": 1.0}, \"tts\": \"Turning left to avoid obstacle.\"},\n"
-            "    {\"command\": \"backward\", \"parameters\": {\"speed\": 0.4, \"duration\": 1.5}, \"tts\": \"Backing up from the wall.\"},\n"
-            "    {\"command\": \"stop\", \"parameters\": {}, \"tts\": \"Stopped.\"}\n"
+            "    {\"command\": \"<command_name>\", \"parameters\": {\"speed\": <float>, \"duration\": <float>}, \"tts\": \"<spoken feedback>\"},\n"
+            "    ... more commands ...\n"
             "  ],\n"
-            "  \"description\": \"A table on the right, obstacle ahead, clear path to the left.\"\n"
+            "  \"description\": \"<detailed scene description>\"\n"
             "}\n"
             "```\n"
-            "Interpret the image creatively and accurately for navigation."
+            "Be accurate, creative, and safe. Focus on what’s directly ahead and respond accordingly."
         ),
         "images": [image_data] if image_data else [],
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.1, "top_p": 0.9, "num_predict": 512},
+        "options": {"temperature": 0.5, "top_p": 0.95, "num_predict": 512},  # 창의성 증가
     }
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
