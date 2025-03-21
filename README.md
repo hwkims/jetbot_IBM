@@ -1,5 +1,9 @@
-# jetbot_IBM
-jetbot_IBM granite3.2-vision control
+# jetbot_IBM![image](https://github.com/user-attachments/assets/1962fb04-a450-4c31-b265-72109e456200)
+![image](https://github.com/user-attachments/assets/a3be2781-f62a-4fb3-9a9b-987a418208e6)
+
+jetbot_IBM granite3.2-vision control![image](https://github.com/user-attachments/assets/741a829f-0a7a-4527-a79d-93d6ce902ba9)
+![image](https://github.com/user-attachments/assets/7fdc8b0b-1b2a-44ef-ba66-c94366e23ab4)
+
 ![image](https://github.com/user-attachments/assets/99c5753a-e924-454f-a2b4-3110405e5843)
 ![image](https://github.com/user-attachments/assets/9e852845-ae11-4831-ba01-3cd6f332cc70)
 
@@ -7,7 +11,121 @@ jetbot_IBM granite3.2-vision control
 ![image](https://github.com/user-attachments/assets/8fffbc99-aab0-4984-a7cd-3b9e483d3b6c)
 ![image](https://github.com/user-attachments/assets/1f4f13eb-c240-4677-a9a8-8960c0ca7922)
  
+# JetBot Control with Vision and Ollama
 
+This project provides a comprehensive system for controlling a JetBot robot using both direct commands and autonomous, vision-based navigation powered by [Ollama](https://ollama.ai/).  It leverages FastAPI for the backend API, WebSockets for real-time communication, and edge-tts for text-to-speech feedback.  The system supports a Streamlit-based web interface for manual control and visualization of the autonomous process.
+
+## Features
+
+*   **Direct Control:** Issue basic movement commands (forward, backward, left, right, stop, dance) to the JetBot via a web interface.
+*   **Vision-Based Autonomous Navigation:**  Utilize the Ollama large language model (specifically `granite3.2-vision`) for image analysis and autonomous decision-making. The JetBot can navigate, avoid obstacles, and describe its environment.
+*   **Real-time Image Streaming:** View a live video stream from the JetBot's camera in the web interface.
+*   **Text-to-Speech (TTS) Feedback:**  Receive spoken feedback from the JetBot, describing its actions and observations, using `edge-tts`.
+*   **Custom Commands:**  Define custom actions based on the vision model's analysis of the scene.
+*   **Multiple Control Modes:** Switch between manual control, descriptive mode (where the JetBot describes what it sees), custom command mode, and full autonomous mode.
+* **Physiognomy Analysis:** Includes a Streamlit application demonstrating how to analyze a person's face and classify different characteristics.
+*   **FastAPI Backend:**  A robust and efficient backend API built with FastAPI.
+*   **WebSocket Communication:**  Real-time communication between the web interface, the backend server, and the JetBot.
+*   **Streamlit Frontend:**  An interactive web interface built with Streamlit.
+
+## Project Structure
+
+The project consists of the following main components:
+
+*   **`app.py` (FastAPI Backend):**  This is the core of the system.  It handles:
+    *   WebSocket connections to both the JetBot and the web client.
+    *   Communication with the Ollama API for vision processing.
+    *   Text-to-speech generation using `edge-tts`.
+    *   Processing commands from the client and sending them to the JetBot.
+    *   Serving the static files for the web interface.
+*   **`static/` (Web Interface):** Contains the HTML, CSS, and JavaScript files for the basic web interface that interacts with the FastAPI backend.
+*   **`physiognomy_app.py` (Streamlit App):** A separate Streamlit application demonstrating the use of Ollama for facial analysis.
+*  **`requirements.txt`:** Contains the python dependencies.
+
+## Prerequisites
+
+1.  **JetBot:** A fully assembled and configured JetBot robot. You must have the JetBot's WebSocket server running on the JetBot itself (see JetBot documentation for details).  The default WebSocket URL is `ws://192.168.137.181:8766`.  You may need to adjust this based on your JetBot's IP address.
+2.  **Ollama:**  Ollama must be installed and running. Download and install Ollama from [https://ollama.ai/](https://ollama.ai/).  You'll need to pull the `granite3.2-vision` model:
+    ```bash
+    ollama pull granite3.2-vision
+    ```
+3.  **Python 3.7+:** This project requires Python 3.7 or higher.
+4.  **Dependencies:** Install the required Python packages:
+    ```bash
+    pip install -r requirements.txt
+    ```
+5. **Edge-TTS:** `edge-tts` is used for voice generation. It is included in the requirements.txt.
+
+## Setup and Running
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/hwkims/jetbot_IBM.git
+    cd jetbot_IBM
+    ```
+
+2.  **Configure (if necessary):**
+    *   **`app.py`:** If your Ollama server or JetBot WebSocket URL are different from the defaults, modify the `OLLAMA_HOST` and `JETBOT_WEBSOCKET_URL` variables in `app.py`.
+    *   **`physiognomy_app.py`:** If your Ollama server is different from the defaults, modify the `OLLAMA_HOST` in `physiognomy_app.py`.
+
+3.  **Start the FastAPI Server:**
+    ```bash
+    uvicorn app:app --host 0.0.0.0 --port 8000
+    ```
+    This will start the backend server, making the web interface available at `http://localhost:8000`.  The `--host 0.0.0.0` makes the server accessible from other devices on your network.
+
+4.  **Start the Streamlit App (Optional - for physiognomy analysis):**
+    In a *separate* terminal, navigate to the project directory and run:
+    ```bash
+    streamlit run physiognomy_app.py
+    ```    This will start the Streamlit application, typically at `http://localhost:8501`.
+
+5. **Connect your Jetbot** Ensure your Jetbot is powered on, and the Jetbot websocket server is running.
+
+6.  **Access the Web Interface:** Open a web browser and go to `http://localhost:8000` (or the appropriate address if you changed the host/port).
+
+## Usage
+
+### Main Web Interface (`http://localhost:8000`)
+
+The main interface provides buttons for direct control (Forward, Backward, Left, Right, Stop, Dance) and input fields for more complex interactions:
+
+*   **Direct Control Buttons:** These send immediate commands to the JetBot.
+*   **Iterations:** Specifies how many times a command should be repeated.
+*   **Text Input:** Used for custom prompts and text input for Ollama.
+*   **Describe:** Sends the current camera image to Ollama and displays/speaks a description of the scene.
+*   **Custom:** Sends the current camera image and the text prompt to Ollama, then executes the returned commands.
+*   **Autonomous:** Enters autonomous mode, where the JetBot repeatedly analyzes the scene and navigates based on Ollama's output.
+
+### Physiognomy App (`http://localhost:8501`)
+
+The Streamlit app allows you to either upload an image or use your webcam to capture an image of a face.  It then sends the image to Ollama with a prompt to analyze 32 facial features and provide a physiognomy reading in JSON format. The results are displayed, including a radar chart of the facial features.
+
+## Troubleshooting
+
+*   **JetBot Not Connecting:**
+    *   Ensure the JetBot is powered on and connected to the same network as your computer.
+    *   Verify that the JetBot's WebSocket server is running.
+    *   Double-check the `JETBOT_WEBSOCKET_URL` in `app.py`.
+*   **Ollama Not Responding:**
+    *   Make sure Ollama is running.
+    *   Verify that you have pulled the `granite3.2-vision` model (`ollama pull granite3.2-vision`).
+    *   Check the `OLLAMA_HOST` variable in `app.py` and `physiognomy_app.py`.
+*   **Web Interface Not Working:**
+    *   Ensure the FastAPI server is running (`uvicorn app:app ...`).
+    *   Check your browser's developer console for any JavaScript errors.
+*   **TTS Not Working**
+    * Ensure you have a working internet connection for `edge-tts` to download the required voice data the first time it runs.
+* **Streamlit Webcam Issues:**
+    * Modern browsers often require secure contexts (HTTPS) for webcam access. If you are experiencing trouble with the webcam in the Streamlit app, you might need to set up HTTPS or use a workaround like `streamlit run physiognomy_app.py --server.enableCORS=false --server.enableXsrfProtection=false`.  **Note:** Disabling CORS and XSRF protection is generally not recommended for production environments, but may be acceptable for local development and testing.  A better solution for production would be to set up a proper HTTPS server.
+
+## Contributing
+
+Contributions are welcome!  Please feel free to submit pull requests or open issues on the GitHub repository.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) - see the LICENSE file for details.
 # JetBot Control 🤖
 
 ![JetBot](https://via.placeholder.com/720x300.png?text=JetBot+Image)  
