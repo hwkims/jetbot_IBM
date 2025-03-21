@@ -10,7 +10,8 @@ jetbot_IBM granite3.2-vision control![image](https://github.com/user-attachments
 ![image](https://github.com/user-attachments/assets/dcf4e0e0-e4b6-4798-af3f-98d98b5b65b5)
 ![image](https://github.com/user-attachments/assets/8fffbc99-aab0-4984-a7cd-3b9e483d3b6c)
 ![image](https://github.com/user-attachments/assets/1f4f13eb-c240-4677-a9a8-8960c0ca7922)
- 
+ https://ollama.com/library/granite3.2-vision
+ https://jetbot.org/master/index.html
 # JetBot Control with Vision and Ollama
 
 This project provides a comprehensive system for controlling a JetBot robot using both direct commands and autonomous, vision-based navigation powered by [Ollama](https://ollama.ai/).  It leverages FastAPI for the backend API, WebSockets for real-time communication, and edge-tts for text-to-speech feedback.  The system supports a Streamlit-based web interface for manual control and visualization of the autonomous process.
