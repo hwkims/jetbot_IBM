@@ -1,0 +1,761 @@
+# -*- coding: utf-8 -*-
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import asyncio
+import json
+import logging
+import base64
+import binascii
+from typing import Dict, List, Optional, AsyncGenerator, Any
+from contextlib import asynccontextmanager
+import httpx
+from pathlib import Path
+import edge_tts
+import os
+import websockets
+import re
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# --- Configuration ---
+OLLAMA_HOST = "http://localhost:11434"
+MODEL_NAME = "granite3.2-vision" # Or your chosen vision model
+DRIVER_WEBSOCKET_URL = "ws://192.168.137.181:8766" # !! VERIFY JETBOT IP !!
+STATIC_DIR = Path(__file__).parent / "static"
+TTS_VOICE = "en-US-JennyNeural"
+VALID_COMMANDS = [
+    "forward_slow", "forward_medium", "forward_fast",
+    "backward_slow", "backward_medium", "backward_fast",
+    "left_slow", "left_medium", "left_fast",
+    "right_slow", "right_medium", "right_fast",
+    "stop"
+]
+HTTP_TIMEOUT = 30.0
+MIN_IMAGE_LENGTH = 1000
+
+OLLAMA_OPTIONS = {"temperature": 0.0} # Consistent decisions
+
+# --- Global State ---
+client_websockets: List[WebSocket] = []
+driver_websocket: Optional[websockets.WebSocketClientProtocol] = None
+current_image_base64: Optional[str] = None
+autonomous_task: Optional[asyncio.Task] = None
+is_autonomous_running: bool = False
+last_command: str = "stop"
+driver_connection_task: Optional[asyncio.Task] = None
+
+# --- FastAPI Lifespan ---
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    global driver_connection_task
+    logger.info("Application startup...")
+    driver_connection_task = asyncio.create_task(connect_to_driver())
+    yield # App runs
+    logger.info("Application shutting down...")
+    if is_autonomous_running: await stop_autonomous_mode()
+    if driver_connection_task and not driver_connection_task.done():
+        driver_connection_task.cancel(); await asyncio.sleep(0.1)
+    if driver_websocket:
+        try: await driver_websocket.close(code=1001)
+        except Exception: pass
+    clients_to_close = client_websockets[:]
+    for ws in clients_to_close:
+         try: await ws.close(code=1001)
+         except Exception: pass
+    client_websockets.clear()
+    logger.info("Shutdown complete.")
+
+# --- FastAPI App Setup ---
+app = FastAPI(title="JetBot Vision Control v24 (Stop Check First)", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# --- Helper Functions ---
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    index_path = STATIC_DIR / "index.html"
+    if not index_path.exists(): return HTMLResponse("Error: index.html not found", 404)
+    try:
+        with open(index_path, "r", encoding="utf-8") as f: return HTMLResponse(f.read())
+    except Exception as e: logger.error(f"Read index.html error: {e}"); return HTMLResponse("Server error", 500)
+
+async def generate_tts(text: str) -> Optional[str]:
+    # ... (No changes needed from v20/21) ...
+    if not text: return None
+    uid = base64.urlsafe_b64encode(os.urandom(9)).decode('utf-8')
+    tmp_file = STATIC_DIR / f"tts_{uid}.mp3"
+    try:
+        comm = edge_tts.Communicate(text, TTS_VOICE); await comm.save(str(tmp_file))
+        if not tmp_file.exists(): raise IOError("TTS save failed")
+        with open(tmp_file, "rb") as f: audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+        return audio_b64
+    except Exception as e: logger.error(f"TTS gen error: {e}"); return None
+    finally:
+        if tmp_file.exists():
+            try: os.remove(tmp_file)
+            except OSError: pass
+
+
+def strip_base64_prefix(b64_str: str) -> str:
+    # ... (No changes needed) ...
+    return re.sub(r"^data:image/[a-zA-Z]+;base64,", "", b64_str, flags=re.IGNORECASE)
+
+def is_base64_valid(b64_string: Optional[str]) -> bool:
+    # ... (No changes needed) ...
+    if not b64_string or len(b64_string) < MIN_IMAGE_LENGTH: return False
+    try: base64.b64decode(b64_string, validate=True); return True
+    except (binascii.Error, ValueError): return False
+
+# --- Ollama Interaction ---
+
+async def query_ollama_describe_ui(image_data: str) -> Dict:
+    """Requests general, factual description of the robot's view."""
+    base64_string = strip_base64_prefix(image_data)
+    if not is_base64_valid(base64_string): return {"description": "Error: Invalid image data."}
+    # Simplified describe prompt
+    prompt_text = (
+        "As an observer through a robot's camera, describe the main features of the current scene factually and concisely. "
+        "Focus on elements relevant to movement and environment type. "
+        "**DO NOT mention image quality. Describe ONLY the visible content.**"
+        " Respond **strictly** JSON: {\"description\": \"<scene description>\"}"
+    )
+    data = {"model": MODEL_NAME, "prompt": prompt_text, "images": [base64_string], "stream": False, "format": "json", "options": OLLAMA_OPTIONS}
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.post(f"{OLLAMA_HOST}/api/generate", json=data)
+            response.raise_for_status()
+            response_json = response.json(); inner_json_str = response_json.get("response")
+            if not inner_json_str: return {"description": "Empty response."}
+            try:
+                result = json.loads(inner_json_str)
+                desc_val = result.get("description"); desc = str(desc_val).strip() if isinstance(desc_val, str) else str(desc_val) if desc_val else ""
+                return {"description": desc or "Empty description."}
+            except json.JSONDecodeError: logger.error(f"Failed decode describe JSON: '{inner_json_str[:100]}...'"); return {"description": f"Format error. Response: {inner_json_str}"}
+    except Exception as e: logger.error(f"Ollama describe query error: {e}"); return {"description": "Error during description."}
+
+
+async def query_ollama_autonomous(image_data: str, last_cmd: str = "stop") -> Dict[str, str]:
+    """Single-stage: Analyze image, prioritize STOP, then decide command."""
+    base64_string = strip_base64_prefix(image_data)
+    if not is_base64_valid(base64_string):
+        logger.error("Invalid image for autonomous decision. Stopping.")
+        return {"command": "stop"}
+
+    valid_cmds_str = ", ".join(VALID_COMMANDS)
+
+    # --- STOP Check First Autonomous Prompt ---
+    prompt_text = (
+        f"**Act as a robot's AI driver.** Analyze the camera image. Last command: '{last_cmd}'. Choose ONE command from: {valid_cmds_str}."
+        "\n\n**STEP 1: MANDATORY SAFETY STOP CHECK (Perform FIRST):**"
+        "\n- Look closely at the image. Is there an **immediate, critical reason to STOP**?"
+        "    - YES IF: RED traffic light visible?"
+        "    - YES IF: Stopped vehicle / large obstacle blocking path < 3m?"
+        "    - YES IF: ANY obstacle very close < 0.8m?"
+        "    - YES IF: Path ahead is completely blocked or unsafe?"
+        "\n- **If YES to any STOP condition: Your command MUST BE 'stop'.**"
+        "\n\n**STEP 2: CHOOSE MOVEMENT COMMAND (Perform ONLY IF STEP 1 determined NO stop is needed):**"
+        "\n- **Analyze the safe path forward:** Consider YELLOW lights (use 'forward_slow'), obstacles needing avoidance ('left/right_slow'), path curvature (gentle='slow', moderate='medium', sharp='fast' turns), and straight path clearance ('slow'/'medium'/'fast' forward based on distance)."
+        "\n- **Select the BEST non-stop command** from the list ({valid_cmds_str}) that allows smooth, safe progress based on the visual analysis."
+        "\n- **If uncertain about safe movement after analysis, default to 'stop'.**"
+        "\n\n**Follow the two steps strictly.** Prioritize Step 1. If Step 1 requires 'stop', output 'stop'. Otherwise, perform Step 2 and output the chosen movement command."
+        " Respond **ONLY** with the final chosen command in strict JSON format: {\"command\": \"<chosen_command_from_list>\"}"
+    )
+    # --- End Prompt ---
+
+    data = {"model": MODEL_NAME, "prompt": prompt_text, "images": [base64_string], "stream": False, "format": "json", "options": OLLAMA_OPTIONS}
+    # logger.info(f"Sending STOP-check autonomous request...")
+
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.post(f"{OLLAMA_HOST}/api/generate", json=data)
+            response.raise_for_status()
+            response_json = response.json(); inner_json_str = response_json.get("response")
+            # logger.debug(f"Ollama Auto Raw Response: {inner_json_str}")
+            if not inner_json_str: logger.warning("Ollama empty auto response. Stopping."); return {"command": "stop"}
+            try:
+                result = json.loads(inner_json_str)
+                command = result.get("command")
+                if command not in VALID_COMMANDS:
+                    logger.warning(f"Ollama invalid cmd: '{command}'. Stopping."); command = "stop"
+                return {"command": command}
+            except json.JSONDecodeError:
+                logger.error(f"Failed decode auto JSON: '{inner_json_str[:100]}...'. Stopping."); return {"command": "stop"}
+    except Exception as e:
+        logger.error(f"Ollama auto query failed: {e}", exc_info=True)
+        return {"command": "stop"}
+
+
+async def query_ollama_interpret_custom(image_data: str, custom_prompt: str) -> Dict[str, str]:
+    """Interprets user text command + image context into a VALID_COMMANDS."""
+    base64_string = strip_base64_prefix(image_data)
+    if not is_base64_valid(base64_string):
+        logger.error("Invalid image for custom cmd interpretation. Stopping.")
+        return {"command": "stop"}
+
+    valid_cmds_str = ", ".join(VALID_COMMANDS)
+    prompt_text = (
+        f"**Robot command interpreter.** User wants: '{custom_prompt}'. Current view in image. "
+        f"Choose the MOST appropriate and safest **single command** from: {valid_cmds_str} to attempt the user's intention, prioritizing safety based on the image. "
+        "If request is unsafe (e.g., move into obstacle) or ambiguous, choose 'stop'. "
+        "Respond **ONLY** JSON: {\"command\": \"<chosen_command_from_list>\"}"
+    )
+    data = {"model": MODEL_NAME, "prompt": prompt_text, "images": [base64_string], "stream": False, "format": "json", "options": OLLAMA_OPTIONS}
+    # logger.info(f"Sending custom command interpretation request for: '{custom_prompt}'")
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.post(f"{OLLAMA_HOST}/api/generate", json=data)
+            response.raise_for_status()
+            response_json = response.json(); inner_json_str = response_json.get("response")
+            if not inner_json_str: logger.warning("Ollama empty custom interpretation. Stopping."); return {"command": "stop"}
+            try:
+                result = json.loads(inner_json_str)
+                command = result.get("command")
+                if command not in VALID_COMMANDS: logger.warning(f"Ollama invalid custom interpretation: '{command}'. Stopping."); command = "stop"
+                # logger.info(f"Interpreted custom command as: {command}")
+                return {"command": command}
+            except json.JSONDecodeError: logger.error(f"Failed decode custom JSON: '{inner_json_str[:100]}...'. Stopping."); return {"command": "stop"}
+    except Exception as e: logger.error(f"Ollama custom query interpretation failed: {e}", exc_info=True); return {"command": "stop"}
+
+
+# --- WebSocket Handling (Driver & Clients) ---
+async def connect_to_driver():
+    # ... (No changes needed) ...
+    global driver_websocket, current_image_base64
+    while True:
+        ws_url = DRIVER_WEBSOCKET_URL
+        try:
+            async with websockets.connect(ws_url, ping_interval=10, ping_timeout=20, open_timeout=10) as ws:
+                driver_websocket = ws; logger.info(f"Driver connected: {ws_url}.")
+                await broadcast_to_clients({"status": "driver_connected"})
+                while True:
+                    try: data = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                    except asyncio.TimeoutError:
+                         try: await asyncio.wait_for(ws.ping(), timeout=10); continue
+                         except asyncio.TimeoutError: logger.error("Driver ping timeout."); break
+                    except websockets.exceptions.ConnectionClosed: break
+                    try:
+                        message = json.loads(data)
+                        if "image" in message and isinstance(message["image"], str):
+                            img_data = message["image"]
+                            if len(img_data) > 100:
+                                current_image_base64 = img_data
+                                await broadcast_to_clients({"image": current_image_base64})
+                    except json.JSONDecodeError: pass
+                    except Exception as e: logger.error(f"Driver msg process error: {e}", exc_info=True)
+        except Exception as e: logger.warning(f"Driver connection error: {type(e).__name__}. Retrying...")
+        finally:
+             if driver_websocket:
+                 try: await driver_websocket.close()
+                 except Exception: pass
+                 driver_websocket = None
+             current_image_base64 = None
+             await broadcast_to_clients({"status": "driver_disconnected", "image": None})
+             await asyncio.sleep(5)
+
+
+async def broadcast_to_clients(data: Dict):
+    # ... (No changes needed) ...
+    if not client_websockets: return
+    msg = json.dumps(data)
+    disconnected = []
+    for ws in client_websockets[:]:
+        try: await ws.send_text(msg)
+        except Exception: disconnected.append(ws)
+    for ws in disconnected:
+        if ws in client_websockets: client_websockets.remove(ws)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    # ... (No changes needed) ...
+    await websocket.accept()
+    client_websockets.append(websocket)
+    try:
+        if current_image_base64: await websocket.send_text(json.dumps({"image": current_image_base64}))
+        status = "driver_connected" if driver_websocket else "driver_disconnected"
+        auto_status = "on" if is_autonomous_running else "off"
+        await websocket.send_text(json.dumps({"status": status, "autonomous_status": auto_status}))
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                await process_command(message.get("action"), message.get("parameters", {}))
+            except json.JSONDecodeError: await websocket.send_text(json.dumps({"error": "Invalid JSON."}))
+            except Exception as e: logger.error(f"Client msg error: {e}"); await websocket.send_text(json.dumps({"error": "Server error."}))
+    except WebSocketDisconnect: pass
+    except Exception as e: logger.error(f"Client WS error: {e}", exc_info=True)
+    finally:
+        if websocket in client_websockets: client_websockets.remove(websocket)
+
+
+# --- Command Processing & Autonomous Logic ---
+async def process_command(action: Optional[str], parameters: Dict, sender_ws: Optional[WebSocket] = None):
+    # ... (No significant changes needed from v21 - custom action now calls interpret) ...
+    global last_command
+    if action in ["describe", "autonomous", "custom"]:
+        img_valid = current_image_base64 and is_base64_valid(strip_base64_prefix(current_image_base64))
+        if not img_valid:
+            msg = f"No valid image available for action '{action}'."; logger.warning(msg)
+            await broadcast_to_clients({"response": msg, "error": "No valid image."})
+            if action == "autonomous" and is_autonomous_running: await stop_autonomous_mode()
+            return
+
+    if action == "manual":
+        command = parameters.get("command", "stop")
+        if command not in VALID_COMMANDS: command = "stop"
+        if is_autonomous_running: await stop_autonomous_mode()
+        if driver_websocket:
+            try:
+                await driver_websocket.send(json.dumps({"command": command}))
+                last_command = command; resp = f"Executed: {command.replace('_', ' ')}"
+                audio = await generate_tts(resp); payload = {"response": resp};
+                if audio: payload["audio"] = f"data:audio/mp3;base64,{audio}"
+                await broadcast_to_clients(payload)
+            except Exception as e: logger.error(f"Send manual cmd '{command}' error: {e}"); await broadcast_to_clients({"response": f"Send error."})
+        else: await broadcast_to_clients({"response": "Robot not connected."})
+
+    elif action == "custom": # Uses AI interpretation now
+        custom_command_text = parameters.get("command", "").strip()
+        if not custom_command_text: await broadcast_to_clients({"response": "Custom command empty."}); return
+
+        if is_autonomous_running: await stop_autonomous_mode()
+
+        logger.info(f"Interpreting custom command: '{custom_command_text}'")
+        interpretation_result = await query_ollama_interpret_custom(current_image_base64, custom_command_text)
+        final_command = interpretation_result.get("command", "stop")
+
+        logger.info(f"Custom '{custom_command_text}' interpreted as -> '{final_command}'")
+
+        if driver_websocket:
+            try:
+                await driver_websocket.send(json.dumps({"command": final_command}))
+                last_command = final_command
+                resp = f"Interpreted '{custom_command_text}' as '{final_command}' and executed."
+                audio = await generate_tts(resp); payload = {"response": resp};
+                if audio: payload["audio"] = f"data:audio/mp3;base64,{audio}"
+                await broadcast_to_clients(payload)
+            except Exception as e: logger.error(f"Send interpreted custom cmd '{final_command}' error: {e}"); await broadcast_to_clients({"response": f"Send error."})
+        else: await broadcast_to_clients({"response": "Robot not connected."})
+
+    elif action == "describe":
+        result = await query_ollama_describe_ui(current_image_base64)
+        desc = result.get("description", "Failed description.")
+        audio = await generate_tts(desc); payload = {"response": desc};
+        if audio: payload["audio"] = f"data:audio/mp3;base64,{audio}"
+        await broadcast_to_clients(payload)
+
+    elif action == "autonomous":
+        mode = parameters.get("mode")
+        if mode == "on": await start_autonomous_mode()
+        elif mode == "off": await stop_autonomous_mode()
+        else: await broadcast_to_clients({"error": f"Invalid mode '{mode}'."})
+
+async def start_autonomous_mode():
+    # ... (No changes needed) ...
+    global is_autonomous_running, autonomous_task
+    if is_autonomous_running: return
+    if not driver_websocket: await broadcast_to_clients({"response": "Cannot start: Robot disconnected."}); return
+    if not current_image_base64 or not is_base64_valid(strip_base64_prefix(current_image_base64)):
+        await broadcast_to_clients({"response": "Cannot start: No valid image."}); return
+    is_autonomous_running = True
+    if autonomous_task and not autonomous_task.done(): autonomous_task.cancel()
+    autonomous_task = asyncio.create_task(autonomous_control())
+    logger.info("Autonomous mode ENGAGED.")
+    await broadcast_to_clients({"response": "Autonomous mode engaged.", "autonomous_status": "on"})
+
+
+async def stop_autonomous_mode():
+    # ... (No changes needed) ...
+    global is_autonomous_running, autonomous_task, last_command
+    if not is_autonomous_running: return
+    is_autonomous_running = False
+    if autonomous_task:
+        if not autonomous_task.done(): autonomous_task.cancel()
+        try: await asyncio.wait_for(autonomous_task, timeout=0.5)
+        except (asyncio.CancelledError, asyncio.TimeoutError): pass
+        autonomous_task = None
+    if driver_websocket:
+        try: await driver_websocket.send(json.dumps({"command": "stop"}))
+        except Exception: pass
+    last_command = "stop"
+    logger.info("Autonomous mode DISENGAGED.")
+    await broadcast_to_clients({"response": "Autonomous mode disengaged.", "autonomous_status": "off"})
+
+
+async def autonomous_control():
+    """Autonomous loop: Single-stage Ollama call, send command reactively."""
+    global last_command
+    logger.info("Autonomous control loop STARTED (Stop Check First).")
+    while is_autonomous_running:
+        img_to_process = current_image_base64
+
+        if img_to_process and is_base64_valid(strip_base64_prefix(img_to_process)) and driver_websocket:
+            command = "stop" # Default safety
+            try:
+                result = await query_ollama_autonomous(img_to_process, last_command)
+                command = result.get("command", "stop")
+
+                if is_autonomous_running and driver_websocket:
+                    await driver_websocket.send(json.dumps({"command": command}))
+                    if command != last_command:
+                        logger.info(f"Auto command: {command}")
+                        tts_text = command.replace('_', ' ').capitalize()
+                        audio_b64 = await generate_tts(tts_text)
+                        payload = {"autonomous_command": command}
+                        if audio_b64: payload["audio"] = f"data:audio/mp3;base64,{audio_b64}"
+                        await broadcast_to_clients(payload)
+                    last_command = command
+            except Exception as e:
+                logger.error(f"Error in auto control cycle: {e}", exc_info=True)
+                if is_autonomous_running and driver_websocket: # Safety stop
+                    try: await driver_websocket.send(json.dumps({"command": "stop"}))
+                    except Exception: pass
+                last_command = "stop"
+                await asyncio.sleep(0.5)
+        elif not driver_websocket: await asyncio.sleep(0.5)
+        elif not img_to_process or not is_base64_valid(strip_base64_prefix(img_to_process)): await asyncio.sleep(0.1)
+        else: break
+
+        await asyncio.sleep(0.05) # Yield briefly
+
+    logger.info("Autonomous control loop STOPPED.")
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    import uvicorn
+    logger.info(f"Starting FastAPI - Check JetBot IP: {DRIVER_WEBSOCKET_URL}")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JetBot Command Center</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Pro Display', -apple-system, Arial, sans-serif;
+            background: linear-gradient(145deg, #f8fafc, #e2e8f0);
+            color: #1e293b;
+            min-height: 100vh;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            font-size: 2.8rem;
+            font-weight: 700;
+            color: #1e293b;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 40px;
+        }
+        #feed {
+            max-width: 900px;
+            width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            margin-bottom: 40px;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+            max-width: 900px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .custom {
+            max-width: 900px;
+            width: 100%;
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+            padding: 14px 20px;
+            color: #1e293b;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.9);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        input {
+            flex: 1;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.7);
+            color: #1e293b;
+            font-size: 1rem;
+            outline: none;
+            backdrop-filter: blur(10px);
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        input:focus {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+        #response {
+            max-width: 900px;
+            width: 100%;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            margin-top: 15px;
+            font-size: 1rem;
+            line-height: 1.6;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        #audio { display: none; }
+        @media (max-width: 900px) {
+            h1 { font-size: 2.2rem; }
+            .controls { grid-template-columns: repeat(2, 1fr); }
+            button { padding: 12px 16px; font-size: 0.9rem; }
+            input { padding: 12px; font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+    <h1>JetBot Command Center</h1>
+    <img id="feed" src="" alt="JetBot Feed">
+    <div class="controls">
+        <button id="forward-slow">👟 Forward Slow</button>
+        <button id="forward-medium">🏃‍♂️ Forward</button>
+        <button id="forward-fast">🚀 Forward Fast</button>
+        <button id="backward-slow">👟 Backward Slow</button>
+        <button id="backward-medium">🏃‍♂️ Backward</button>
+        <button id="backward-fast">🚀 Backward Fast</button>
+        <button id="left-slow">↖️ Left Slow</button>
+        <button id="left-medium">⬅️ Left</button>
+        <button id="left-fast">↙️ Left Fast</button>
+        <button id="right-slow">↗️ Right Slow</button>
+        <button id="right-medium">➡️ Right</button>
+        <button id="right-fast">↘️ Right Fast</button>
+        <button id="stop">🛑 Stop</button>
+        <button id="describe">🔍 Describe</button>
+        <button id="autonomous">🤖 Autonomous</button>
+    </div>
+    <div class="custom">
+        <input id="custom-input" placeholder="Enter custom command (e.g., forward_slow)">
+        <button id="custom">✨ Execute</button>
+    </div>
+    <div id="response">Awaiting your command...</div>
+    <audio id="audio" autoplay></audio>
+
+    <script>
+        const ws = new WebSocket("ws://localhost:8000/ws");
+        const feed = document.getElementById("feed");
+        const response = document.getElementById("response");
+        const audio = document.getElementById("audio");
+        let isAutonomous = false;
+
+        ws.onopen = () => {
+            console.log("Connected to FastAPI WebSocket");
+            response.textContent = "Connected to JetBot Command Center";
+        };
+        ws.onclose = () => {
+            console.log("WebSocket connection closed");
+            response.textContent = "Connection lost. Please refresh the page.";
+        };
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            response.textContent = "WebSocket error occurred.";
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.image) {
+                feed.src = `data:image/jpeg;base64,${data.image}`;
+            }
+            if (data.response) {
+                response.textContent = data.response;
+            }
+            if (data.audio) {
+                audio.src = data.audio;
+            }
+        };
+
+        function send(action, parameters = {}) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action, parameters }));
+            } else {
+                response.textContent = "Not connected to JetBot!";
+            }
+        }
+
+        document.getElementById("forward-slow").addEventListener("click", () =>
+            send("manual", { command: "forward_slow" }));
+        document.getElementById("forward-medium").addEventListener("click", () =>
+            send("manual", { command: "forward_medium" }));
+        document.getElementById("forward-fast").addEventListener("click", () =>
+            send("manual", { command: "forward_fast" }));
+        document.getElementById("backward-slow").addEventListener("click", () =>
+            send("manual", { command: "backward_slow" }));
+        document.getElementById("backward-medium").addEventListener("click", () =>
+            send("manual", { command: "backward_medium" }));
+        document.getElementById("backward-fast").addEventListener("click", () =>
+            send("manual", { command: "backward_fast" }));
+        document.getElementById("left-slow").addEventListener("click", () =>
+            send("manual", { command: "left_slow" }));
+        document.getElementById("left-medium").addEventListener("click", () =>
+            send("manual", { command: "left_medium" }));
+        document.getElementById("left-fast").addEventListener("click", () =>
+            send("manual", { command: "left_fast" }));
+        document.getElementById("right-slow").addEventListener("click", () =>
+            send("manual", { command: "right_slow" }));
+        document.getElementById("right-medium").addEventListener("click", () =>
+            send("manual", { command: "right_medium" }));
+        document.getElementById("right-fast").addEventListener("click", () =>
+            send("manual", { command: "right_fast" }));
+        document.getElementById("stop").addEventListener("click", () =>
+            send("manual", { command: "stop" }));
+        document.getElementById("describe").addEventListener("click", () =>
+            send("describe"));
+        document.getElementById("custom").addEventListener("click", () => {
+            const command = document.getElementById("custom-input").value || "stop";
+            send("custom", { command });
+        });
+        document.getElementById("autonomous").addEventListener("click", () => {
+            isAutonomous = !isAutonomous;
+            send("autonomous", { mode: isAutonomous ? "on" : "off" });
+            document.getElementById("autonomous").textContent = isAutonomous ? "🤖 Autonomous (ON)" : "🤖 Autonomous";
+        });
+    </script>
+</body>
+</html>
+
+import asyncio
+import websockets
+import json
+import logging
+from jetbot import Robot, Camera, bgr8_to_jpeg
+import base64
+
+# Logging Setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Configuration
+WEBSOCKET_PORT = 8766
+CAMERA_WIDTH = 300
+CAMERA_HEIGHT = 300
+FPS = 10
+
+# JetBot Initialization
+try:
+    robot = Robot()
+    camera = Camera.instance(width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
+    logger.info("JetBot initialized successfully.")
+except Exception as e:
+    logger.error(f"JetBot initialization failed: {e}")
+    robot = None
+    camera = None
+
+# Command Handling
+async def handle_command(command):
+    if not robot:
+        logger.error("Robot not initialized.")
+        return
+    try:
+        speeds = {
+            "forward_slow": (0.2, 0.2), "forward_medium": (0.4, 0.4), "forward_fast": (0.6, 0.6),
+            "backward_slow": (-0.2, -0.2), "backward_medium": (-0.4, -0.4), "backward_fast": (-0.6, -0.6),
+            "left_slow": (-0.1, 0.2), "left_medium": (-0.2, 0.4), "left_fast": (-0.3, 0.6),
+            "right_slow": (0.2, -0.1), "right_medium": (0.4, -0.2), "right_fast": (0.6, -0.3),
+            "stop": (0.0, 0.0)
+        }
+        left_speed, right_speed = speeds.get(command, (0.0, 0.0))
+        robot.set_motors(left_speed, right_speed)
+        logger.info(f"Command: {command}, Motors: Left={left_speed}, Right={right_speed}")
+    except Exception as e:
+        logger.error(f"Command execution error: {e}")
+        robot.stop()
+
+# WebSocket Handler
+async def websocket_handler(websocket, path):
+    logger.info("WebSocket connection established")
+    async def send_image_stream():
+        if not camera:
+            return
+        while True:
+            try:
+                frame = camera.value
+                if frame is not None:
+                    image_base64 = base64.b64encode(bgr8_to_jpeg(frame)).decode('utf-8')
+                    await websocket.send(json.dumps({"image": image_base64}))
+                await asyncio.sleep(1.0 / FPS)
+            except Exception as e:
+                logger.error(f"Image stream error: {e}")
+                break
+
+    image_task = asyncio.ensure_future(send_image_stream())
+    try:
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                command = data.get("command", "stop")
+                await handle_command(command)
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON received")
+            except Exception as e:
+                logger.error(f"Message handling error: {e}")
+    except websockets.ConnectionClosed:
+        logger.info("WebSocket connection closed by client")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        image_task.cancel()
+        if robot:
+            robot.stop()
+            logger.info("Motors stopped on disconnect")
+
+# Main Function
+async def main():
+    while True:
+        try:
+            server = await websockets.serve(websocket_handler, "0.0.0.0", WEBSOCKET_PORT)
+            logger.info(f"WebSocket server running on port {WEBSOCKET_PORT}")
+            await asyncio.Future()
+        except Exception as e:
+            logger.error(f"Server error: {e}")
+            await asyncio.sleep(5)
+            logger.info("Retrying server start...")
+
+if __name__ == "__main__":
+    if robot:
+        robot.stop()
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        logger.info("Shutting down server")
+        if robot:
+            robot.stop()
+    finally:
+        loop.close()
