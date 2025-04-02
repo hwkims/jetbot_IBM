@@ -1,3 +1,147 @@
+Okay, I'll structure the content from the provided GitHub READMEs into the requested PowerPoint outline format. This combines information from the `jetbot.kr`, `jetbot_gemma`, and `jetbot_IBM` repositories.
+
+---
+
+**PPT 내용 정리 (JetBot AI 프로젝트)**
+
+**01 프로젝트 개요 (Project Overview)**
+
+*   **JetBot 소개:**
+    *   NVIDIA Jetson Nano 기반의 저렴하고 교육적인 오픈소스 AI 로봇 플랫폼.
+    *   특징: 합리적 가격 ($250 미만), 교육적 가치 (기본 로봇 공학 ~ 고급 AI), 쉬운 설정 (웹 브라우저 프로그래밍, Docker), 재미 (AI, 이미지 처리, 로봇 공학 탐험).
+    *   [이미지: JetBot 사진 또는 로고]
+*   **프로젝트 목표:**
+    *   JetBot 플랫폼을 활용하여 다양한 AI 기반 로봇 제어 및 상호작용 시스템 개발 및 탐구.
+    *   기본적인 AI 주행부터 최신 언어/비전 모델을 활용한 자율 제어까지 단계별 구현.
+*   **수행 프로젝트 요약:**
+    1.  **기본 AI 주행 (JetBot AI Following):**
+        *   도로 따라가기 (Road Following)
+        *   컵라면 따라가기 (Object Following - Cup Ramen)
+    2.  **LLM 기반 제어 (JetBot Gemma Control):**
+        *   로컬 LLM (Ollama + `gemma3:4b`)을 이용한 실시간 영상 분석 및 제어.
+        *   음성 피드백 (Edge TTS - 한국어) 기능 구현.
+    3.  **비전 LLM 기반 제어 (JetBot IBM Control):**
+        *   비전 특화 LLM (Ollama + IBM `granite3.2-vision`) 활용.
+        *   수동/자율/설명/커스텀 등 다양한 제어 모드 구현.
+        *   Streamlit 기반 웹 인터페이스 및 추가 기능 (얼굴 특징 분석 데모).
+*   **주요 사용 기술:**
+    *   **하드웨어:** NVIDIA Jetson Nano, JetBot 키트
+    *   **소프트웨어:** Python, FastAPI, Streamlit, WebSockets, HTML/CSS/JS, Docker
+    *   **AI/ML:**
+        *   딥러닝 (Road/Object Following 모델 - Hugging Face)
+        *   대규모 언어 모델 (LLM): Ollama (`gemma3:4b`, IBM `granite3.2-vision`)
+        *   음성 합성 (TTS): Edge TTS
+        *   음성 인식: Web Speech API
+
+**02 프로젝트 팀 구성 및 역할 (Team Composition and Roles)**
+
+*   **팀 구성:** 본 프로젝트는 [hwkims]에 의해 단독으로 기획 및 개발되었습니다. (Assuming it's an individual project based on the repo owner)
+*   **수행 역할:**
+    *   **기획:** JetBot 활용 아이디어 구상 및 단계별 프로젝트 목표 설정.
+    *   **하드웨어:** JetBot 조립 및 설정.
+    *   **소프트웨어 개발:**
+        *   JetBot 제어 로직 구현 (Python).
+        *   백엔드 API 개발 (FastAPI).
+        *   프론트엔드 인터페이스 개발 (HTML/JS/CSS, Streamlit).
+        *   실시간 통신 구현 (WebSockets).
+    *   **AI 모델 활용:**
+        *   데이터셋 수집/활용 (Road/Object Following).
+        *   사전 훈련된 모델 활용 및 연동 (Hugging Face).
+        *   Ollama 기반 LLM/Vision LLM 설정 및 API 연동.
+        *   TTS/음성인식 API 연동.
+    *   **테스트 및 디버깅:** 기능 테스트 및 오류 수정.
+    *   **문서화 및 공유:** GitHub README 작성, 결과물 공유 (Hugging Face, YouTube).
+
+**03 프로젝트 수행 절차 및 방법 (Project Execution Procedure and Method)**
+
+*   **1단계: 환경 구축 및 기본 설정**
+    *   JetBot 하드웨어 조립 및 Jetson Nano OS 설정.
+    *   기본 JetBot 소프트웨어 설치 (SD 카드 이미지 또는 Docker 활용).
+    *   네트워크 설정 (Wi-Fi 연결) 및 PC와의 통신 확인.
+*   **2단계: 기본 AI 주행 기능 구현 (`jetbot.kr`)**
+    *   주행 데이터 수집 (도로, 컵라면 이미지).
+    *   AI 모델 학습 또는 사전 훈련된 모델 활용 (Hugging Face).
+    *   Jupyter Notebook 예제를 참고하여 기본 동작(회피, 경로/객체 추종) 로직 구현.
+    *   결과물(모델, 데이터셋) 공유.
+*   **3단계: LLM 기반 제어 시스템 개발 (`jetbot_gemma`)**
+    *   Ollama 설치 및 `gemma3:4b` 모델 다운로드.
+    *   FastAPI 백엔드 서버 구축:
+        *   JetBot 카메라 영상 스트리밍 수신.
+        *   Ollama API 연동하여 영상 분석 요청.
+        *   분석 결과 기반 JetBot 제어 명령 생성 (전진, 후진, 회전 등).
+        *   WebSocket을 이용한 JetBot 및 웹 클라이언트와의 실시간 통신.
+    *   Edge TTS 연동하여 분석 결과 음성 출력 (한국어).
+    *   기본 웹 UI 개발 (HTML/JS/CSS)하여 제어 및 결과 확인.
+*   **4단계: 비전 LLM 기반 고급 제어 시스템 개발 (`jetbot_IBM`)**
+    *   Ollama에 IBM `granite3.2-vision` 모델 추가.
+    *   FastAPI 백엔드 확장:
+        *   다양한 제어 모드(수동, 자율, 설명, 커스텀) 로직 구현.
+        *   비전 모델 특화 프롬프트 설계.
+        *   Web Speech API 활용 음성 명령 인식 기능 추가 (선택 사항).
+    *   Streamlit을 이용한 인터랙티브 웹 프론트엔드 개발:
+        *   실시간 영상, 제어 버튼, 분석 결과 시각화.
+    *   (부가 기능) 별도 Streamlit 앱으로 얼굴 특징 분석 데모 구현.
+*   **5단계: 테스트, 개선 및 공유**
+    *   각 기능별 단위 테스트 및 통합 테스트 수행.
+    *   성능 측정 (응답 속도 등) 및 개선점 도출.
+    *   GitHub 통해 소스 코드 및 README 문서 업데이트 및 공유.
+    *   데모 영상 제작 및 공유 (YouTube Shorts).
+
+**04 프로젝트 수행 결과 (Project Execution Results)**
+
+*   **결과물 1: 기본 AI 주행 기능 (`jetbot.kr`)**
+    *   JetBot 도로 따라가기 기능 구현 및 데모 영상 공개.
+        *   [영상: JetBot AI Road Following (YouTube Short 링크)]
+    *   JetBot 컵라면 따라가기 기능 구현 및 데모 영상 공개.
+        *   [영상: JetBot Cup Ramen Following (YouTube Short 링크)]
+    *   관련 데이터셋 및 학습 모델 Hugging Face 통해 공개.
+        *   [링크/스크린샷: Hugging Face 데이터셋 및 모델 페이지]
+*   **결과물 2: LLM 기반 제어 시스템 (`jetbot_gemma`)**
+    *   `gemma3:4b` 모델을 활용, 실시간 영상 분석 기반 JetBot 제어 시스템 프로토타입 완성.
+    *   웹 인터페이스를 통한 원격 제어 및 실시간 영상/분석 결과 확인 가능.
+    *   상황 분석 결과를 한국어 음성(Edge TTS)으로 출력하는 기능 구현.
+    *   [스크린샷: jetbot_gemma 웹 인터페이스]
+*   **결과물 3: 비전 LLM 기반 고급 제어 시스템 (`jetbot_IBM`)**
+    *   IBM `granite3.2-vision` 모델 활용, 향상된 비전 기반 제어 시스템 구축.
+    *   수동 제어, 자율 주행, 장면 설명, 사용자 정의 명령 등 다중 모드 지원.
+    *   Streamlit 기반의 시각적이고 인터랙티브한 제어 인터페이스 제공.
+    *   [스크린샷: jetbot_IBM Streamlit 인터페이스]
+    *   (부가 결과) 얼굴 특징 분석 Streamlit 데모 앱 개발.
+*   **공통 결과:**
+    *   모든 프로젝트 소스 코드 및 설정 방법 GitHub 통해 공개.
+    *   JetBot을 활용한 다양한 최신 AI 기술 적용 사례 제시.
+
+**05 자체 평가 의견 (Self-Assessment Opinion)**
+
+*   **잘된 점 (Strengths):**
+    *   저렴한 JetBot 플랫폼을 활용하여 최신 AI 기술(LLM, Vision LLM, TTS) 접목 성공.
+    *   단계별 프로젝트 진행을 통해 AI 로봇 제어 기술 심층 학습 및 구현 경험 확보.
+    *   FastAPI, WebSockets, Streamlit 등 최신 웹 기술을 활용하여 사용자 친화적인 인터페이스 및 실시간 제어 시스템 구축.
+    *   오픈소스(Ollama, JetBot)를 적극 활용하여 개발 효율성 증대.
+    *   결과물(코드, 모델, 영상)을 체계적으로 정리하고 공개하여 공유 및 재현 가능성 높임.
+*   **어려웠던 점 및 개선할 점 (Weaknesses & Improvements):**
+    *   **성능 한계:** Jetson Nano의 연산 능력 및 네트워크 환경에 따른 실시간 처리 지연(latency) 발생 가능성.
+    *   **LLM 의존성 및 신뢰도:** LLM의 분석 결과가 항상 정확하거나 일관되지 않을 수 있으며, 이는 로봇 제어의 안정성에 영향. (예: 부정확한 장애물 인식, 예상치 못한 명령 생성)
+    *   **장애물 회피 로직:** 현재 구현된 회피 로직이 단순하여(예: 'obstacle' 단어 감지 시 무조건 좌회전), LLM 출력을 더 정교하게 분석하여 상황에 맞는 회피 기동(좌/우/후진 등)이 필요함 (`jetbot_gemma` 개선점).
+    *   **프롬프트 엔지니어링:** 원하는 로봇 행동을 유도하기 위한 효과적인 프롬프트 설계의 어려움.
+    *   **UI/UX:** 사용자 경험을 더욱 향상시키기 위한 인터페이스 개선 필요.
+    *   **에러 핸들링:** 예기치 않은 상황(통신 오류, 모델 응답 실패 등)에 대한 안정성 강화 필요.
+*   **배운 점 (Lessons Learned):**
+    *   엣지 디바이스(Jetson Nano) 환경에서 AI 모델 배포 및 최적화의 중요성 체감.
+    *   하드웨어(로봇)-소프트웨어(제어 로직)-AI(분석/판단) 간의 유기적인 시스템 통합 능력 향상.
+    *   LLM/Vision LLM의 로보틱스 분야 적용 가능성 및 현재 기술적 한계점 명확히 인지.
+    *   오픈소스 커뮤니티 및 문서 활용 능력 증대.
+*   **향후 계획 (Future Work):**
+    *   정교한 장애물 회피 및 경로 계획 알고리즘 도입.
+    *   특정 객체 인식 및 추적 기능 고도화.
+    *   더 다양한 로봇 명령어 및 상호작용 시나리오 추가 (예: 음성 대화 기반 제어).
+    *   성능 최적화 (모델 경량화, 코드 최적화 등).
+    *   다양한 AI 모델 테스트 및 비교 평가.
+
+---
+
+이 내용을 바탕으로 각 슬라이드를 디자인하고, 필요에 따라 이미지, 영상, 코드 스니펫 등을 추가하면 효과적인 PPT를 만들 수 있습니다.
+
 # jetbot_IBM![image](https://github.com/user-attachments/assets/1962fb04-a450-4c31-b265-72109e456200)
 ![image](https://github.com/user-attachments/assets/a3be2781-f62a-4fb3-9a9b-987a418208e6)
 
