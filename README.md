@@ -35,7 +35,7 @@ Okay, I'll structure the content from the provided GitHub READMEs into the reque
 
 **02 프로젝트 팀 구성 및 역할 (Team Composition and Roles)**
 
-*   **팀 구성:** 본 프로젝트는 [hwkims]에 의해 단독으로 기획 및 개발되었습니다. (Assuming it's an individual project based on the repo owner)
+*   **팀 구성:** 본 프로젝트는 [hwkims]에 의해 기획 및 개발되었습니다. (Assuming it's an individual project based on the repo owner)
 *   **수행 역할:**
     *   **기획:** JetBot 활용 아이디어 구상 및 단계별 프로젝트 목표 설정.
     *   **하드웨어:** JetBot 조립 및 설정.
