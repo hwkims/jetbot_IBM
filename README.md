@@ -1,6 +1,4 @@
-Okay, I'll structure the content from the provided GitHub READMEs into the requested PowerPoint outline format. This combines information from the `jetbot.kr`, `jetbot_gemma`, and `jetbot_IBM` repositories.
-
----
+ 
 
 **PPT 내용 정리 (JetBot AI 프로젝트)**
 
@@ -137,10 +135,7 @@ Okay, I'll structure the content from the provided GitHub READMEs into the reque
     *   더 다양한 로봇 명령어 및 상호작용 시나리오 추가 (예: 음성 대화 기반 제어).
     *   성능 최적화 (모델 경량화, 코드 최적화 등).
     *   다양한 AI 모델 테스트 및 비교 평가.
-
----
-
-이 내용을 바탕으로 각 슬라이드를 디자인하고, 필요에 따라 이미지, 영상, 코드 스니펫 등을 추가하면 효과적인 PPT를 만들 수 있습니다.
+ 
 
 # jetbot_IBM![image](https://github.com/user-attachments/assets/1962fb04-a450-4c31-b265-72109e456200)
 ![image](https://github.com/user-attachments/assets/a3be2781-f62a-4fb3-9a9b-987a418208e6)
